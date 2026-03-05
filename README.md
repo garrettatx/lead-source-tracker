@@ -1,8 +1,28 @@
 # GD Lead Source Tracker
 
-**Version:** 1.0.0  
-**Author:** Garrett Digital  
+**Version:** 1.1.0-wpengine
+**Author:** Garrett Digital
 **Type:** WordPress Must-Use Plugin (mu-plugin)
+
+> **You are on the `wp-engine` branch.** This is the WP Engine adaptation of the plugin. It moves all cookie capture logic to client-side JavaScript to work around WP Engine's aggressive full-page cache. For the standard PHP-based version, see the `main` branch.
+
+## What's Different on This Branch
+
+WP Engine caches pages at the server level. When a cached page is served, PHP hooks like `template_redirect` don't fire. This means the server-side `gd_ls_capture()` function never runs for the majority of visitors.
+
+**This branch removes the `template_redirect` hook and `gd_ls_capture()` function entirely.** All cookie capture logic has been moved into the inline JavaScript that runs in the footer. The JS handles:
+
+- Parsing `window.location.search` for UTM parameters and gclid
+- Reading `document.referrer` for referrer classification
+- Classifying the referrer against the same search/social/AI domain lists (ported from PHP to JS)
+- Writing cookies via `document.cookie` with the same `gd_ls_` prefix and 30-day expiration
+- Following the same first-touch / last-touch attribution rules
+
+Everything else is unchanged: the PHP shortcodes, form plugin integrations (Formidable, CF7, Gravity Forms), and cookie names all work identically. PHP shortcodes read from `$_COOKIE`, which is populated by JS-set cookies on the next page request.
+
+**First-visit behavior:** On a visitor's very first pageview, JS sets cookies and populates form fields in the same page load. If the visitor submits a form on that very first page, the JS form population path is the reliable one. Shortcode-based hidden field defaults (e.g., `[gd_ls_source]` as a Formidable default value) will be empty on that first visit but populated correctly on every subsequent page.
+
+---
 
 ## What It Does
 
@@ -16,16 +36,16 @@ Upload `gd-lead-source-tracker.php` to `/wp-content/mu-plugins/`. MU-plugins loa
 
 ## How It Works
 
-### Cookie Capture (Server-Side, PHP)
+### Cookie Capture (Client-Side, JavaScript — WP Engine Adaptation)
 
-On every front-end page load (`template_redirect`), the plugin runs this logic:
+On every front-end page load, the inline JS runs this logic:
 
-1. **Guard checks** skip admin pages, AJAX, cron, REST API, CLI, 404s, RSS feeds, and logged-in editors/admins.
-2. **UTM parameters** in the URL (`utm_source`, `utm_medium`, `utm_campaign`, `utm_term`, `utm_content`, `gclid`) are read and sanitized.
+1. **Guard checks** skip logged-in editors/admins (applied in PHP before the script outputs).
+2. **UTM parameters** in the URL (`utm_source`, `utm_medium`, `utm_campaign`, `utm_term`, `utm_content`, `gclid`) are read from `window.location.search` and sanitized.
 3. **gclid auto-classification** sets source to "Google" and medium to "cpc" when gclid is present but UTMs are missing.
-4. **Referrer classification** kicks in when no UTMs are present. The plugin checks the HTTP referrer against known domain lists for search engines, social platforms, and AI tools, then assigns source/medium accordingly.
-5. **First-touch vs. last-touch** behavior differs by channel type. Organic/social/referral sources only write cookies if no source cookie exists yet (first-touch). UTM-tagged visits always overwrite (last-touch for paid campaigns).
-6. **Referrer, landing page, and timestamp** are captured once and never overwritten.
+4. **Referrer classification** kicks in when no UTMs are present. The JS reads `document.referrer` and checks it against the same domain lists for search engines, social platforms, and AI tools, then assigns source/medium accordingly.
+5. **First-touch vs. last-touch** behavior is identical to the PHP version. Organic/social/referral sources only write cookies if no source cookie exists yet (first-touch). UTM-tagged visits always overwrite (last-touch for paid campaigns).
+6. **Referrer, landing page (`window.location.href`), and timestamp** are captured once and never overwritten.
 
 ### Cookie Names
 
@@ -41,11 +61,11 @@ All cookies use the `gd_ls_` prefix:
 | `gd_ls_gclid` | Google Ads click ID | When gclid param present |
 | `gd_ls_referrer` | Raw referrer URL or "(direct)" | First visit only |
 | `gd_ls_landing_page` | Full URL of first page visited | First visit only |
-| `gd_ls_timestamp` | Date/time of first visit (site timezone) | First visit only |
+| `gd_ls_timestamp` | Date/time of first visit (browser local time) | First visit only |
 
 Cookie duration: **30 days** (configurable via `GD_LS_COOKIE_DAYS` constant).
 
-Cookies are set with `httpOnly = false` so the client-side JavaScript can read them for form population.
+Cookies are set with `SameSite=Lax` and, on HTTPS sites, the `Secure` flag. `httpOnly` is not set so PHP can read them from `$_COOKIE` on subsequent requests.
 
 ### Form Population (Client-Side, JavaScript)
 
@@ -68,7 +88,7 @@ The plugin classifies referrers into four channels:
 | Other external | `referral` | Any domain not in the lists above (uses bare hostname as source) |
 | No referrer | `none` | Direct traffic (source = "direct") |
 
-To add new domains, edit the arrays in `gd_ls_get_channel_lists()`.
+The domain lists are defined twice — once in PHP (`gd_ls_get_channel_lists()`) and once in JavaScript. If you add a domain to one, add it to the other.
 
 ### Shortcodes
 
@@ -113,19 +133,29 @@ define( 'GD_LS_COOKIE_DAYS', 30 );
 
 ## Referrer List Maintenance
 
-When new search engines, social platforms, or AI tools gain meaningful traffic share, add them to `gd_ls_get_channel_lists()`. The format is `'domain.fragment' => 'Display Name'`. Matching uses `strpos` against the referrer hostname, so `'google.'` matches `google.com`, `google.co.uk`, etc.
+When new search engines, social platforms, or AI tools gain meaningful traffic share, add them to `gd_ls_get_channel_lists()` in PHP **and** to the corresponding JS objects (`SEARCH_ENGINES`, `SOCIAL_PLATFORMS`, `AI_TOOLS`) in `gd_ls_inline_script()`. Both must stay in sync.
+
+## Testing on WP Engine
+
+1. Enable WP Engine's page cache in staging.
+2. Visit with UTM params (e.g., `?utm_source=google&utm_medium=cpc&utm_campaign=test`). Verify cookies are set via browser DevTools → Application → Cookies.
+3. Visit from Google organic (simulate with browser devtools by setting `document.referrer`). Verify `gd_ls_source=Google` and `gd_ls_medium=organic`.
+4. Fill out a form. Verify hidden fields contain the correct values.
+5. Verify shortcodes in email notifications pull correct data (requires a form submission so the cookie is available server-side).
 
 ## Known Limitations
 
 1. **Cookie-based tracking** means data is lost if the user clears cookies or uses a different browser/device.
-2. **No server-side form integration for WP Engine** or other hosts with aggressive page caching. The PHP cookie-setting runs on `template_redirect`, which gets bypassed on cached pages. See the WP Engine adaptation notes below.
+2. **Timestamp timezone** is the visitor's browser local time (not site timezone). This differs from the PHP version, which uses `current_time()`.
 3. **30-day window** means a visitor who returns after 31 days starts fresh.
-4. **No cross-domain tracking.** If you run multiple domains, cookies are scoped per domain.
+4. **No cross-domain tracking.** Cookies are scoped per domain.
+5. **First-visit shortcode gap**: PHP shortcodes read `$_COOKIE`, which is populated by JS cookies on subsequent requests. A form submitted on the visitor's very first pageview will have shortcode values empty server-side; JS form field population handles this case client-side.
 
-## WP Engine Considerations
+## Branch Strategy
 
-WP Engine's page caching serves static HTML for most visitors, which means the PHP `template_redirect` hook never fires on cached pages. The cookies won't get set server-side for the majority of visits.
+```
+main          ← stable, standard PHP version (for non-cached environments)
+└── wp-engine ← permanent parallel branch for WP Engine (JS-based capture)
+```
 
-**Recommended approach:** Move all cookie capture logic to JavaScript. The JS version would read UTM params from `window.location.search`, read the referrer from `document.referrer`, classify the source client-side, and set cookies via `document.cookie`. The form population logic already works client-side, so that part stays the same.
-
-See the `wp-engine` branch for this adaptation.
+The `wp-engine` branch is a long-lived permanent branch, not a feature branch to merge back. When `main` gets improvements that also apply here (e.g., new referrer domains, security fixes), cherry-pick or merge them into `wp-engine` and keep both domain lists in sync.
