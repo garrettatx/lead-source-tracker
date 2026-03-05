@@ -256,7 +256,7 @@ function gd_ls_capture() {
 
     if ( ! isset( $_COOKIE[ GD_LS_PREFIX . 'landing_page' ] ) ) {
         $protocol = is_ssl() ? 'https://' : 'http://';
-        $utm_data['landing_page'] = $protocol . sanitize_text_field( wp_unslash( $_SERVER['SERVER_NAME'] ) ) . esc_url_raw( wp_unslash( $_SERVER['REQUEST_URI'] ) );
+        $utm_data['landing_page'] = $protocol . wp_parse_url( home_url(), PHP_URL_HOST ) . esc_url_raw( wp_unslash( $_SERVER['REQUEST_URI'] ) );
     }
 
     // ── Step 5: Capture timestamp (set once). ──
