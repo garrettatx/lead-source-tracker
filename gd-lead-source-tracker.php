@@ -246,9 +246,10 @@ function gd_ls_inline_script() {
     }
 
     // Pass PHP values into JS safely.
-    $cookie_domain = gd_ls_get_cookie_domain();
-    $site_host     = strtolower( wp_parse_url( home_url(), PHP_URL_HOST ) );
+    $cookie_domain  = gd_ls_get_cookie_domain();
+    $site_host      = strtolower( wp_parse_url( home_url(), PHP_URL_HOST ) );
     $site_host_bare = preg_replace( '/^www\./', '', $site_host );
+    $gmt_offset     = (float) get_option( 'gmt_offset' ); // Hours offset from UTC, e.g. -6 for CST.
     ?>
 <script id="gd-lead-source-tracker">
 (function() {
@@ -257,6 +258,7 @@ function gd_ls_inline_script() {
     var PREFIX      = '<?php echo esc_js( GD_LS_PREFIX ); ?>';
     var COOKIE_DAYS = <?php echo intval( GD_LS_COOKIE_DAYS ); ?>;
     var SITE_HOST   = '<?php echo esc_js( $site_host_bare ); ?>';
+    var GMT_OFFSET  = <?php echo json_encode( $gmt_offset ); ?>; // WordPress site UTC offset in hours.
 
     // ── Cookie helpers ──
 
@@ -432,14 +434,18 @@ function gd_ls_inline_script() {
         // ── Step 5: Capture timestamp (set once). ──
 
         if (!getCookie(PREFIX + 'timestamp')) {
-            var now = new Date();
+            // Use WordPress site timezone (GMT_OFFSET) so the timestamp matches
+            // the time shown in WP admin and form notification emails.
+            var now      = new Date();
+            var sitems   = now.getTime() + (GMT_OFFSET * 3600000);
+            var siteTime = new Date(sitems);
             var pad = function(n) { return n < 10 ? '0' + n : n; };
-            utmData.timestamp = now.getFullYear() + '-' +
-                pad(now.getMonth() + 1) + '-' +
-                pad(now.getDate()) + ' ' +
-                pad(now.getHours()) + ':' +
-                pad(now.getMinutes()) + ':' +
-                pad(now.getSeconds());
+            utmData.timestamp = siteTime.getUTCFullYear() + '-' +
+                pad(siteTime.getUTCMonth() + 1) + '-' +
+                pad(siteTime.getUTCDate()) + ' ' +
+                pad(siteTime.getUTCHours()) + ':' +
+                pad(siteTime.getUTCMinutes()) + ':' +
+                pad(siteTime.getUTCSeconds());
         }
 
         // ── Step 6: Write cookies for any new data. ──

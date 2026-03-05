@@ -61,7 +61,7 @@ All cookies use the `gd_ls_` prefix:
 | `gd_ls_gclid` | Google Ads click ID | When gclid param present |
 | `gd_ls_referrer` | Raw referrer URL or "(direct)" | First visit only |
 | `gd_ls_landing_page` | Full URL of first page visited | First visit only |
-| `gd_ls_timestamp` | Date/time of first visit (browser local time) | First visit only |
+| `gd_ls_timestamp` | Date/time of first visit (WordPress site timezone) | First visit only |
 
 Cookie duration: **30 days** (configurable via `GD_LS_COOKIE_DAYS` constant).
 
@@ -146,8 +146,7 @@ When new search engines, social platforms, or AI tools gain meaningful traffic s
 ## Known Limitations
 
 1. **Cookie-based tracking** means data is lost if the user clears cookies or uses a different browser/device.
-2. **Timestamp timezone** is the visitor's browser local time (not site timezone). This differs from the PHP version, which uses `current_time()`.
-3. **30-day window** means a visitor who returns after 31 days starts fresh.
+2. **30-day window** means a visitor who returns after 31 days starts fresh.
 4. **No cross-domain tracking.** Cookies are scoped per domain.
 5. **First-visit shortcode gap**: PHP shortcodes read `$_COOKIE`, which is populated by JS cookies on subsequent requests. A form submitted on the visitor's very first pageview will have shortcode values empty server-side; JS form field population handles this case client-side.
 
