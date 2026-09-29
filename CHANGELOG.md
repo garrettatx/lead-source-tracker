@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.2.1 - 2026-09-29
+
+**Fixed**
+- The server-side fill at submit deleted percent-encoded characters from landing pages and
+  referrers (`utm_term=handyman%20austin` became `handymanaustin`). `sanitize_text_field()` strips
+  `%xx` sequences; the plugin now uses its own sanitizer, matching the browser script. Found in the
+  first staging test submission.
+
 ## v1.2.0 - 2026-09-29
 
 One core for every host: browser capture, which the `wp-engine` branch introduced, is now the only

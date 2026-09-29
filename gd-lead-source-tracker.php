@@ -3,7 +3,7 @@
  * Plugin Name: GD Lead Source Tracker
  * Description: Records where each visitor came from (UTMs, ad click IDs, referrer, landing page) in
  *              first-party cookies and fills hidden form fields with it. Works on cached hosts.
- * Version:     1.2.0
+ * Version:     1.2.1
  * Author:      Garrett Digital
  * Requires PHP: 7.4
  *
@@ -25,7 +25,7 @@ if ( defined( 'GD_LS_VERSION' ) ) {
 	return;
 }
 
-define( 'GD_LS_VERSION', '1.2.0' );
+define( 'GD_LS_VERSION', '1.2.1' );
 define( 'GD_LS_PREFIX', 'gd_ls_' );
 
 // v1.1 constant, kept so existing sites that set it still work. Now means the last-touch window.
@@ -1000,7 +1000,20 @@ function gd_ls_cookie( $key ) {
 		return '';
 	}
 	$max = in_array( $key, array( 'referrer', 'landing_page' ), true ) ? 500 : 300;
-	return substr( sanitize_text_field( wp_unslash( $_COOKIE[ $name ] ) ), 0, $max );
+	return gd_ls_sanitize( wp_unslash( $_COOKIE[ $name ] ), $max );
+}
+
+/**
+ * Same cleaning as the browser script: strips tags, angle brackets, quotes and control characters,
+ * and caps the length. Not sanitize_text_field(), which deletes percent-encoded characters and so
+ * turns "?utm_term=handyman%20austin" in a landing page into "handymanaustin".
+ */
+function gd_ls_sanitize( $value, $max ) {
+	$value = wp_check_invalid_utf8( (string) $value );
+	$value = wp_strip_all_tags( $value );
+	$value = preg_replace( '/[\x00-\x1F\x7F<>"]/u', ' ', $value );
+	$value = trim( preg_replace( '/\s+/u', ' ', (string) $value ) );
+	return function_exists( 'mb_substr' ) ? mb_substr( $value, 0, $max ) : substr( $value, 0, $max );
 }
 
 /**

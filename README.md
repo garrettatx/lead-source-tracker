@@ -4,7 +4,7 @@ Records where each visitor came from and puts it into hidden form fields, so eve
 its source: Google search, a Google Ads click, the Business Profile, ChatGPT, Facebook, a referral
 site, or direct. One plugin for every host, including WP Engine and other full-page caches.
 
-**Version:** 1.2.0 · **Author:** Garrett Digital · **Requires:** WordPress, PHP 7.4+
+**Version:** 1.2.1 · **Author:** Garrett Digital · **Requires:** WordPress, PHP 7.4+
 
 ## How It Works
 

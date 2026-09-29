@@ -35,7 +35,11 @@ function is_user_logged_in() { return false; }
 function current_user_can( $cap ) { return false; }
 function is_ssl() { return true; }
 function wp_json_encode( $data, $flags = 0 ) { return json_encode( $data, $flags ); }
-function sanitize_text_field( $s ) { return trim( preg_replace( '/\s+/', ' ', strip_tags( (string) $s ) ) ); }
+// Mirrors WordPress: sanitize_text_field() also deletes percent-encoded octets, which is the trap
+// gd_ls_sanitize() avoids. Kept so a regression back to sanitize_text_field() fails the tests.
+function sanitize_text_field( $s ) { $s = strip_tags( (string) $s ); $s = preg_replace( '/%[a-f0-9]{2}/i', '', $s ); return trim( preg_replace( '/\s+/', ' ', $s ) ); }
+function wp_check_invalid_utf8( $s ) { return mb_check_encoding( (string) $s, 'UTF-8' ) ? (string) $s : ''; }
+function wp_strip_all_tags( $s ) { $s = preg_replace( '@<(script|style)[^>]*?>.*?</\\1>@si', '', (string) $s ); return strip_tags( $s ); }
 function wp_unslash( $v ) { return is_string( $v ) ? stripslashes( $v ) : $v; }
 function esc_html( $s ) { return htmlspecialchars( (string) $s, ENT_QUOTES ); }
 function add_shortcode( $tag, $cb ) { $GLOBALS['gd_test_shortcodes'][ $tag ] = $cb; }
@@ -93,7 +97,13 @@ $_COOKIE = array(
 	'gd_ls_bogus'       => 'x',
 );
 
+$_COOKIE['gd_ls_landing_page'] = 'https://www.example-site.com/contact/?utm_source=google&utm_medium=cpc&utm_term=handyman%20austin';
+$_COOKIE['gd_ls_referrer']     = 'https://www.example-site.com/<script>x</script>"quoted"';
+
 echo "Values\n";
+check( 'percent-encoded characters kept in URLs', gd_ls_value( 'landing_page' ), 'https://www.example-site.com/contact/?utm_source=google&utm_medium=cpc&utm_term=handyman%20austin' );
+check( 'tags and quotes stripped', gd_ls_value( 'referrer' ), 'https://www.example-site.com/ quoted' );
+check( 'length capped', strlen( gd_ls_sanitize( str_repeat( 'a', 900 ), 500 ) ), 500 );
 check( 'source_medium computed', gd_ls_value( 'source_medium' ), 'google / organic' );
 check( 'stored key read', gd_ls_value( 'channel' ), 'Organic Search' );
 check( 'missing stored key is empty', gd_ls_value( 'campaign' ), '' );
