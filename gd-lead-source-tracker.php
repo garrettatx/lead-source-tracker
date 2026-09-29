@@ -4,12 +4,20 @@
  * Description: Captures UTM parameters, gclid, referrer, and landing page in cookies.
  *              Classifies organic traffic source/medium from the referrer.
  *              Populates hidden form fields in Formidable Forms and Contact Form 7.
- * Version: 1.0.0
+ * Version: 1.1.0-wpengine
  * Author: Garrett Digital
  *
  * INSTALLATION:
  * Upload this file to /wp-content/mu-plugins/gd-lead-source-tracker.php
  * MU-plugins load automatically. No activation step needed.
+ *
+ * WP ENGINE ADAPTATION:
+ * This branch moves all cookie capture logic to client-side JavaScript.
+ * WP Engine's aggressive page caching serves static HTML for most visitors,
+ * which means the PHP `template_redirect` hook never fires on cached pages.
+ * Cookie capture is therefore handled entirely in JS on page load.
+ * The PHP shortcodes, form integrations, and helper functions are unchanged —
+ * they read from $_COOKIE which is populated by JS cookies on subsequent requests.
  *
  * COOKIE PREFIX: gd_ls_
  * COOKIE DURATION: 30 days (configurable below)
@@ -36,7 +44,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 define( 'GD_LS_COOKIE_DAYS', 30 );
 define( 'GD_LS_PREFIX', 'gd_ls_' );
-define( 'GD_LS_VERSION', '1.0.0' );
+define( 'GD_LS_VERSION', '1.1.0-wpengine' );
 
 // Fields we track. The cookie name is GD_LS_PREFIX + key.
 // "param" is the URL query parameter that maps to this field (if any).
@@ -61,6 +69,9 @@ $gd_ls_fields = array(
  * Returns arrays of known domain fragments for each channel.
  * Matching is done with strpos against the referrer hostname.
  * Add or remove entries as needed.
+ *
+ * Note: These lists are also mirrored in the inline JS below.
+ * If you add a domain here, add it to the JS arrays too.
  */
 function gd_ls_get_channel_lists() {
     return array(
@@ -160,134 +171,26 @@ function gd_ls_classify_referrer( $referrer_url ) {
 
 
 // ──────────────────────────────────────────────
-// SERVER-SIDE: CAPTURE & SET COOKIES
+// WP ENGINE ADAPTATION NOTE
 // ──────────────────────────────────────────────
-
-add_action( 'template_redirect', 'gd_ls_capture', 1 );
-
-function gd_ls_capture() {
-
-    // 1. Original guard: don't run in admin, AJAX, cron, REST API, or CLI.
-    if ( is_admin() || wp_doing_ajax() || wp_doing_cron() || defined( 'REST_REQUEST' ) || ( defined( 'WP_CLI' ) && WP_CLI ) ) {
-        return;
-    }
-
-    // 2. Ghost-proof guard: Only capture data on real web pages.
-    // Ignore calls to files, RSS feeds, or unexpected internal processes.
-    if ( ! is_singular() && ! is_front_page() && ! is_archive() && ! is_home() && ! is_search() ) {
-        return;
-    }
-
-    // 3. Ignore 404 errors (e.g., when the browser looks for an apple-touch-icon.png that doesn't exist)
-    if ( is_404() ) {
-        return;
-    }
-
-    // Don't run for logged-in admins/editors (avoids polluting data)
-    if ( is_user_logged_in() && current_user_can( 'edit_posts' ) ) {
-        return;
-    }
-
-    $cookie_duration = time() + ( DAY_IN_SECONDS * GD_LS_COOKIE_DAYS );
-    $cookie_domain   = gd_ls_get_cookie_domain();
-    $is_secure       = is_ssl();
-
-    // ── Step 1: Check for UTM parameters and gclid in the URL. ──
-
-    $has_utm   = false;
-    $utm_data  = array();
-    $param_map = array(
-        'source'   => 'utm_source',
-        'medium'   => 'utm_medium',
-        'campaign' => 'utm_campaign',
-        'term'     => 'utm_term',
-        'content'  => 'utm_content',
-        'gclid'    => 'gclid',
-    );
-
-    foreach ( $param_map as $field_key => $query_param ) {
-        if ( isset( $_GET[ $query_param ] ) && $_GET[ $query_param ] !== '' ) {
-            $utm_data[ $field_key ] = sanitize_text_field( wp_unslash( $_GET[ $query_param ] ) );
-            if ( $field_key !== 'gclid' ) {
-                $has_utm = true;
-            }
-        }
-    }
-
-    // If gclid is present but no explicit utm_medium, set medium to cpc.
-    if ( ! empty( $utm_data['gclid'] ) && empty( $utm_data['medium'] ) ) {
-        $utm_data['medium'] = 'cpc';
-    }
-    if ( ! empty( $utm_data['gclid'] ) && empty( $utm_data['source'] ) ) {
-        $utm_data['source'] = 'Google';
-    }
-
-    // ── Step 2: If no UTMs, classify from referrer. ──
-
-    if ( ! $has_utm && empty( $utm_data['gclid'] ) ) {
-        $referrer   = isset( $_SERVER['HTTP_REFERER'] ) ? esc_url_raw( wp_unslash( $_SERVER['HTTP_REFERER'] ) ) : '';
-        $classified = gd_ls_classify_referrer( $referrer );
-
-        if ( $classified !== null ) {
-            // Only write source/medium if we don't already have a cookie.
-            // This preserves the original source across internal page navigations.
-            $existing_source = isset( $_COOKIE[ GD_LS_PREFIX . 'source' ] ) ? $_COOKIE[ GD_LS_PREFIX . 'source' ] : '';
-
-            if ( empty( $existing_source ) ) {
-                $utm_data['source'] = $classified['source'];
-                $utm_data['medium'] = $classified['medium'];
-            }
-        }
-    } else {
-        // UTMs present: always overwrite (last-touch attribution for paid campaigns).
-        // This means if someone first came from organic and later clicks a Google Ad,
-        // the source updates to the ad. This is intentional for paid campaign tracking.
-    }
-
-    // ── Step 3: Capture referrer URL (raw, always on first visit). ──
-
-    if ( ! isset( $_COOKIE[ GD_LS_PREFIX . 'referrer' ] ) ) {
-        // If there's a referrer we save it; if empty we explicitly save the string "(direct)".
-        $referrer = isset( $_SERVER['HTTP_REFERER'] ) && ! empty( $_SERVER['HTTP_REFERER'] ) ? esc_url_raw( wp_unslash( $_SERVER['HTTP_REFERER'] ) ) : '(direct)';
-        $utm_data['referrer'] = $referrer;
-    }
-
-    // ── Step 4: Capture landing page (first page visited, set once). ──
-
-    if ( ! isset( $_COOKIE[ GD_LS_PREFIX . 'landing_page' ] ) ) {
-        $protocol = is_ssl() ? 'https://' : 'http://';
-        $utm_data['landing_page'] = $protocol . wp_parse_url( home_url(), PHP_URL_HOST ) . esc_url_raw( wp_unslash( $_SERVER['REQUEST_URI'] ) );
-    }
-
-    // ── Step 5: Capture timestamp (set once). ──
-
-    if ( ! isset( $_COOKIE[ GD_LS_PREFIX . 'timestamp' ] ) ) {
-        $utm_data['timestamp'] = current_time( 'Y-m-d H:i:s' );
-    }
-
-    // ── Step 6: Write cookies for any new data. ──
-
-    foreach ( $utm_data as $key => $value ) {
-        if ( $value === '' && isset( $_COOKIE[ GD_LS_PREFIX . $key ] ) ) {
-            continue; // Don't overwrite existing cookie with empty value.
-        }
-
-        $cookie_name = GD_LS_PREFIX . $key;
-
-        setcookie(
-            $cookie_name,
-            $value,
-            $cookie_duration,
-            '/',
-            $cookie_domain,
-            $is_secure,
-            false // httpOnly = false so JS can read it for form population
-        );
-
-        // Make it available to PHP in the same request.
-        $_COOKIE[ $cookie_name ] = $value;
-    }
-}
+//
+// The template_redirect hook and gd_ls_capture() PHP function have been
+// removed on this branch. WP Engine's aggressive full-page cache serves
+// static HTML to most visitors, which means PHP hooks like template_redirect
+// never fire on cached pages. Server-side cookie capture is therefore
+// unreliable on WP Engine.
+//
+// All cookie capture logic has been moved to inline JavaScript (see
+// gd_ls_inline_script() below). The JS runs on every page load — cached
+// or not — and handles UTM parsing, referrer classification, and cookie
+// writing client-side using the same naming conventions, attribution rules,
+// and domain lists as the PHP version.
+//
+// The PHP shortcodes, Formidable Forms integration, Contact Form 7 integration,
+// and Gravity Forms integration are unchanged. They read from $_COOKIE, which
+// will be populated by JS-set cookies on subsequent page requests.
+//
+// ──────────────────────────────────────────────
 
 
 // ──────────────────────────────────────────────
@@ -312,7 +215,7 @@ function gd_ls_get_cookie_domain() {
 
 
 // ──────────────────────────────────────────────
-// CLIENT-SIDE: JAVASCRIPT TO POPULATE FORM FIELDS
+// CLIENT-SIDE: JAVASCRIPT FOR COOKIE CAPTURE AND FORM POPULATION
 // ──────────────────────────────────────────────
 
 add_action( 'wp_enqueue_scripts', 'gd_ls_enqueue_scripts' );
@@ -341,13 +244,21 @@ function gd_ls_inline_script() {
     if ( is_user_logged_in() && current_user_can( 'edit_posts' ) ) {
         return;
     }
+
+    // Pass PHP values into JS safely.
+    $cookie_domain  = gd_ls_get_cookie_domain();
+    $site_host      = strtolower( wp_parse_url( home_url(), PHP_URL_HOST ) );
+    $site_host_bare = preg_replace( '/^www\./', '', $site_host );
+    $gmt_offset     = (float) get_option( 'gmt_offset' ); // Hours offset from UTC, e.g. -6 for CST.
     ?>
 <script id="gd-lead-source-tracker">
 (function() {
     'use strict';
 
-    var PREFIX = '<?php echo esc_js( GD_LS_PREFIX ); ?>';
+    var PREFIX      = '<?php echo esc_js( GD_LS_PREFIX ); ?>';
     var COOKIE_DAYS = <?php echo intval( GD_LS_COOKIE_DAYS ); ?>;
+    var SITE_HOST   = '<?php echo esc_js( $site_host_bare ); ?>';
+    var GMT_OFFSET  = <?php echo json_encode( $gmt_offset ); ?>; // WordPress site UTC offset in hours.
 
     // ── Cookie helpers ──
 
@@ -370,6 +281,188 @@ function gd_ls_inline_script() {
         <?php endif; ?>
         document.cookie = parts.join('; ');
     }
+
+    // ── Referrer classification lists (mirrors PHP gd_ls_get_channel_lists()) ──
+    // If you update the PHP lists, update these too.
+
+    var SEARCH_ENGINES = {
+        'google.'     : 'Google',
+        'bing.'       : 'Bing',
+        'yahoo.'      : 'Yahoo',
+        'duckduckgo.' : 'DuckDuckGo',
+        'ecosia.'     : 'Ecosia',
+        'baidu.'      : 'Baidu',
+        'yandex.'     : 'Yandex'
+    };
+
+    var SOCIAL_PLATFORMS = {
+        'facebook.'   : 'Facebook',
+        'fb.com'      : 'Facebook',
+        'instagram.'  : 'Instagram',
+        'linkedin.'   : 'LinkedIn',
+        'lnkd.in'     : 'LinkedIn',
+        'twitter.'    : 'Twitter',
+        'x.com'       : 'Twitter',
+        't.co'        : 'Twitter',
+        'pinterest.'  : 'Pinterest',
+        'tiktok.'     : 'TikTok',
+        'reddit.'     : 'Reddit',
+        'threads.net' : 'Threads',
+        'youtube.'    : 'YouTube',
+        'youtu.be'    : 'YouTube',
+        'nextdoor.'   : 'Nextdoor'
+    };
+
+    var AI_TOOLS = {
+        'chatgpt.com'    : 'ChatGPT',
+        'chat.openai.'   : 'ChatGPT',
+        'perplexity.ai'  : 'Perplexity',
+        'claude.ai'      : 'Claude',
+        'gemini.google.' : 'Gemini',
+        'copilot.'       : 'Copilot'
+    };
+
+    // ── Classify a referrer hostname into {source, medium} ──
+
+    function classifyReferrer(referrerUrl) {
+        if (!referrerUrl) {
+            return { source: 'direct', medium: 'none' };
+        }
+
+        var a = document.createElement('a');
+        a.href = referrerUrl;
+        var host = a.hostname ? a.hostname.toLowerCase() : '';
+
+        if (!host) {
+            return { source: 'direct', medium: 'none' };
+        }
+
+        // Strip www for site comparison.
+        var refHostBare = host.replace(/^www\./, '');
+        if (refHostBare === SITE_HOST) {
+            return null; // Internal navigation, don't overwrite.
+        }
+
+        var fragment, label;
+
+        for (fragment in SEARCH_ENGINES) {
+            if (SEARCH_ENGINES.hasOwnProperty(fragment) && host.indexOf(fragment) !== -1) {
+                return { source: SEARCH_ENGINES[fragment], medium: 'organic' };
+            }
+        }
+
+        for (fragment in SOCIAL_PLATFORMS) {
+            if (SOCIAL_PLATFORMS.hasOwnProperty(fragment) && host.indexOf(fragment) !== -1) {
+                return { source: SOCIAL_PLATFORMS[fragment], medium: 'social' };
+            }
+        }
+
+        for (fragment in AI_TOOLS) {
+            if (AI_TOOLS.hasOwnProperty(fragment) && host.indexOf(fragment) !== -1) {
+                return { source: AI_TOOLS[fragment], medium: 'ai-referral' };
+            }
+        }
+
+        // Anything else: referral using bare hostname as source.
+        return { source: refHostBare, medium: 'referral' };
+    }
+
+    // ── Parse URL query parameters ──
+
+    function getQueryParam(name) {
+        var search = window.location.search;
+        var match = search.match(new RegExp('[?&]' + name.replace(/([.*+?^=!:${}()|[\]\/\\])/g, '\\$1') + '=([^&]*)'));
+        return match ? decodeURIComponent(match[1].replace(/\+/g, ' ')) : '';
+    }
+
+    // ── Cookie capture (replaces PHP gd_ls_capture() for WP Engine) ──
+
+    function captureLeadSource() {
+        // ── Step 1: Check for UTM parameters and gclid in the URL. ──
+
+        var hasUtm  = false;
+        var utmData = {};
+
+        var utmSource   = getQueryParam('utm_source');
+        var utmMedium   = getQueryParam('utm_medium');
+        var utmCampaign = getQueryParam('utm_campaign');
+        var utmTerm     = getQueryParam('utm_term');
+        var utmContent  = getQueryParam('utm_content');
+        var gclid       = getQueryParam('gclid');
+
+        if (utmSource)   { utmData.source   = utmSource;   hasUtm = true; }
+        if (utmMedium)   { utmData.medium   = utmMedium;   hasUtm = true; }
+        if (utmCampaign) { utmData.campaign = utmCampaign; hasUtm = true; }
+        if (utmTerm)     { utmData.term     = utmTerm;     hasUtm = true; }
+        if (utmContent)  { utmData.content  = utmContent;  hasUtm = true; }
+        if (gclid)       { utmData.gclid    = gclid; }
+
+        // gclid auto-classification: if gclid present but no explicit medium/source.
+        if (utmData.gclid && !utmData.medium) { utmData.medium = 'cpc'; }
+        if (utmData.gclid && !utmData.source) { utmData.source = 'Google'; }
+
+        // ── Step 2: If no UTMs, classify from referrer. ──
+
+        if (!hasUtm && !utmData.gclid) {
+            var referrer   = document.referrer || '';
+            var classified = classifyReferrer(referrer);
+
+            if (classified !== null) {
+                // Only write source/medium if we don't already have a cookie.
+                // This preserves the original source across internal page navigations.
+                var existingSource = getCookie(PREFIX + 'source');
+                if (!existingSource) {
+                    utmData.source = classified.source;
+                    utmData.medium = classified.medium;
+                }
+            }
+        }
+        // UTMs present: always overwrite (last-touch attribution for paid campaigns).
+
+        // ── Step 3: Capture referrer URL (raw, always on first visit). ──
+
+        if (!getCookie(PREFIX + 'referrer')) {
+            utmData.referrer = document.referrer || '(direct)';
+        }
+
+        // ── Step 4: Capture landing page (first page visited, set once). ──
+
+        if (!getCookie(PREFIX + 'landing_page')) {
+            utmData.landing_page = window.location.href;
+        }
+
+        // ── Step 5: Capture timestamp (set once). ──
+
+        if (!getCookie(PREFIX + 'timestamp')) {
+            // Use WordPress site timezone (GMT_OFFSET) so the timestamp matches
+            // the time shown in WP admin and form notification emails.
+            var now      = new Date();
+            var sitems   = now.getTime() + (GMT_OFFSET * 3600000);
+            var siteTime = new Date(sitems);
+            var pad = function(n) { return n < 10 ? '0' + n : n; };
+            utmData.timestamp = siteTime.getUTCFullYear() + '-' +
+                pad(siteTime.getUTCMonth() + 1) + '-' +
+                pad(siteTime.getUTCDate()) + ' ' +
+                pad(siteTime.getUTCHours()) + ':' +
+                pad(siteTime.getUTCMinutes()) + ':' +
+                pad(siteTime.getUTCSeconds());
+        }
+
+        // ── Step 6: Write cookies for any new data. ──
+
+        var key;
+        for (key in utmData) {
+            if (utmData.hasOwnProperty(key) && utmData[key] !== '') {
+                // Don't overwrite an existing cookie with an empty value.
+                var existing = getCookie(PREFIX + key);
+                if (utmData[key] === '' && existing) { continue; }
+                setCookie(PREFIX + key, utmData[key], COOKIE_DAYS);
+            }
+        }
+    }
+
+    // Run capture immediately (before DOM ready — cookies don't need the DOM).
+    captureLeadSource();
 
     // ── Field list (matches PHP) ──
 
@@ -394,18 +487,18 @@ function gd_ls_inline_script() {
                 // 1. Exact name or ID on the input
                 'input[name="' + cookieName + '"]',
                 'input#' + cookieName,
-                'input#field_' + cookieName, // NEW: Captures Formidable Forms ID (e.g., field_gd_ls_source)
+                'input#field_' + cookieName, // Captures Formidable Forms ID (e.g., field_gd_ls_source)
 
                 // 2. Class directly on the input
                 'input.' + cookieName,
 
                 // 3. Class on a wrapper div
-                '.' + cookieName + ' input', 
+                '.' + cookieName + ' input',
 
                 // Fallbacks for short names (e.g., "source" instead of "gd_ls_source")
                 'input[name="' + field + '"]',
                 'input#' + field,
-                'input#field_' + field, // NEW: Fallback with field_ prefix
+                'input#field_' + field, // Fallback with field_ prefix
                 'input.' + field,
                 '.' + field + ' input', // Wrapper fallback
             ];
@@ -422,7 +515,7 @@ function gd_ls_inline_script() {
             if (utmMap[field]) {
                 selectors.push('input[name="' + utmMap[field] + '"]');
                 selectors.push('input#' + utmMap[field]);
-                selectors.push('input#field_' + utmMap[field]); // NEW: UTM with field_ prefix
+                selectors.push('input#field_' + utmMap[field]); // UTM with field_ prefix
                 selectors.push('input.' + utmMap[field]);
                 selectors.push('.' + utmMap[field] + ' input'); // Wrapper fallback
             }
@@ -554,6 +647,12 @@ function gd_ls_process_shortcodes_in_cf7( $content ) {
 //   2. Repeat for each field you want to capture.
 //   3. In the email notification body, add [gd_ls_summary] at the bottom
 //      or reference individual fields with their Formidable field IDs.
+//
+// WP ENGINE NOTE: On the very first pageview, the JS sets cookies and
+// populates form fields in the same page load. Shortcodes that read
+// $_COOKIE server-side will see the cookies on subsequent page loads.
+// For first-visit form submissions, the JS form population is the
+// reliable path — hidden field shortcode defaults serve as a fallback.
 
 
 // ──────────────────────────────────────────────
