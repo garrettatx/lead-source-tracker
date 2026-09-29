@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>GD Lead Source Tracker E2E</title>
+<style>body{font:14px/1.4 sans-serif;margin:20px}form{border:1px solid #ccc;padding:10px;margin:10px 0}pre{background:#f4f4f4;padding:10px}</style>
+</head><body>
+<h1>Lead Source Tracker E2E fixture</h1>
+
+<!-- 1. A Formidable-style form as a cached page would serve it: gd_ls_ fields carry values baked in
+     from another visitor. Other inputs must never be touched. -->
+<form id="wp-form" class="frm-show-form">
+	<input type="text" id="field_name" name="item_meta[14]" value="">
+	<div class="content"><input type="text" id="field_msg" name="item_meta[15]" value="Pat typed this"></div>
+	<input type="hidden" id="field_gd_ls_source2" name="item_meta[21]" value="baked-from-another-visitor">
+	<input type="hidden" id="field_gd_ls_campaign" name="item_meta[22]" value="stale-campaign">
+	<input type="hidden" id="field_gd_ls_form_page" name="item_meta[23]" value="">
+	<div class="gd_ls_channel"><input type="hidden" name="item_meta[24]" value=""></div>
+	<input type="hidden" name="utm_source" value="">
+	<input type="hidden" name="source" value="">
+	<input type="text" name="term" value="kitchen search box">
+	<button type="submit">Send</button>
+</form>
+
+<!-- 2. A CRM embed: inline form, CRM-style field names, one tracking field already rendered visible. -->
+<form id="crm-form" class="jtwf" data-crm-form="true">
+	<div class="jtwf-field"><label>Name</label><input name="contact.name" value="Test Person" required></div>
+	<div class="jtwf-field"><label>Lead Channel</label><div class="jtwf-input"><input type="text" name="account.custom.TESTCHANNEL" required></div></div>
+	<button type="submit">Submit</button>
+</form>
+
+<div id="late"></div>
+<pre id="results">running...</pre>

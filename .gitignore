@@ -37,3 +37,6 @@ vendor/
 
 # PHP
 *.log
+
+# Built by tests/browser/build.sh
+tests/browser/fixture.html

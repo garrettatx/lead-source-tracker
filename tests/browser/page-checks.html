@@ -1,0 +1,65 @@
+<script>
+// Simulates a form that renders late (AJAX), and a CRM script that reads the form at submit.
+setTimeout(function () {
+	document.getElementById('late').innerHTML = '<form id="late-form" data-crm-form="true"><input name="contact.name" value="Late"></form>';
+}, 800);
+window.__submitted = null;
+document.getElementById('crm-form').addEventListener('submit', function (e) {
+	e.preventDefault();
+	var out = {};
+	new FormData(e.target).forEach(function (v, k) { out[k] = v; });
+	window.__submitted = out;
+});
+
+setTimeout(function () {
+	var results = [];
+	function check(label, actual, expected) {
+		results.push({ label: label, ok: actual === expected, actual: actual, expected: expected });
+	}
+	function val(sel) { var el = document.querySelector(sel); return el ? el.value : '(missing)'; }
+	var here = location.origin + location.pathname;
+	var crm = document.getElementById('crm-form');
+	var late = document.getElementById('late-form');
+
+	check('engine loaded', typeof window.gdLeadSource, 'object');
+	check('capture reason', window.gdLeadSource.state().reason, 'tagged');
+	check('baked Formidable value replaced', val('#field_gd_ls_source2'), 'google');
+	check('stale campaign replaced', val('#field_gd_ls_campaign'), 'remodels');
+	check('form page filled', val('#field_gd_ls_form_page'), here);
+	check('wrapper-class field filled', val('.gd_ls_channel input'), 'Paid Search');
+	check('utm_source field filled', val('input[name="utm_source"]'), 'google');
+	check('legacy bare hidden field filled', val('input[name="source"]'), 'google');
+	check('visible text field named "term" untouched', val('input[name="term"]'), 'kitchen search box');
+	check('input inside .content wrapper untouched', val('#field_msg'), 'Pat typed this');
+	check('name field untouched', val('#field_name'), '');
+
+	var adopted = crm.querySelector('[name="account.custom.TESTCHANNEL"]');
+	check('CRM visible field adopted, value', adopted.value, 'Paid Search');
+	check('CRM adopted field no longer required', adopted.required, false);
+	check('CRM adopted field wrapper hidden', adopted.closest('.jtwf-field').style.display, 'none');
+	check('CRM name field still visible', crm.querySelector('[name="contact.name"]').closest('.jtwf-field').style.display, '');
+	check('CRM name field still required', crm.querySelector('[name="contact.name"]').required, true);
+	check('CRM source_medium injected', val('#crm-form [name="account.custom.TESTSM"]'), 'google / cpc');
+	check('CRM gclid injected', val('#crm-form [name="account.custom.TESTGCLID"]'), 'Cj0KCQjw_e2etest01');
+	check('CRM form page injected', val('#crm-form [name="account.custom.TESTFP"]'), here);
+	check('CRM landing page keeps UTMs only', val('#crm-form [name="account.custom.TESTLP"]'), here + '?utm_source=google&utm_medium=cpc&utm_campaign=remodels');
+	check('CRM first touch injected', /^Paid Search · google \/ cpc · /.test(val('#crm-form [name="account.custom.TESTFT"]')), true);
+	check('REPLACE_ placeholder skipped', crm.querySelector('[name*="REPLACE_"]'), null);
+	check('injected inputs are hidden type', crm.querySelector('[name="account.custom.TESTSM"]').type, 'hidden');
+	check('late-rendered form got fields', late ? val('#late-form [name="account.custom.TESTCHANNEL"]') : '(no late form)', 'Paid Search');
+
+	crm.requestSubmit();
+	var s = window.__submitted || {};
+	check('submit carries channel', s['account.custom.TESTCHANNEL'], 'Paid Search');
+	check('submit carries source/medium', s['account.custom.TESTSM'], 'google / cpc');
+	check('submit carries gclid', s['account.custom.TESTGCLID'], 'Cj0KCQjw_e2etest01');
+	check('submit carries name', s['contact.name'], 'Test Person');
+
+	var failed = results.filter(function (r) { return !r.ok; });
+	window.__gdLsResults = { total: results.length, failed: failed.length, results: results };
+	document.getElementById('results').textContent = results.map(function (r) {
+		return (r.ok ? 'ok   ' : 'FAIL ') + r.label + (r.ok ? '' : '  (expected ' + JSON.stringify(r.expected) + ', got ' + JSON.stringify(r.actual) + ')');
+	}).join('\n') + '\n\n' + (failed.length ? failed.length + ' failed of ' + results.length : 'All ' + results.length + ' browser checks passed');
+}, 2500);
+</script>
+</body></html>
