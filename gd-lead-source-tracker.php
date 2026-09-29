@@ -1,11 +1,16 @@
 <?php
 /**
- * Plugin Name: GD Lead Source Tracker
- * Description: Records where each visitor came from (UTMs, ad click IDs, referrer, landing page) in
- *              first-party cookies and fills hidden form fields with it. Works on cached hosts.
- * Version:     1.2.1
- * Author:      Garrett Digital
- * Requires PHP: 7.4
+ * Plugin Name:       GD Lead Source Tracker
+ * Plugin URI:        https://github.com/garrettatx/lead-source-tracker
+ * Description:       Records where each visitor came from (UTMs, ad click IDs, referrer, landing
+ *                    page) in first-party cookies and fills hidden form fields with it. Works on
+ *                    cached hosts.
+ * Version:           1.2.1
+ * Author:            Garrett Digital
+ * Author URI:        https://www.garrettdigital.com/
+ * Requires PHP:      7.4
+ * Tested up to:      7.1
+ * Update URI:        false
  *
  * One core for every host and every site. Install as an mu-plugin (/wp-content/mu-plugins/) or a
  * regular plugin. Site-specific settings, including field maps for embedded CRM forms, come from the

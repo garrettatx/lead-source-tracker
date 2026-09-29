@@ -1,7 +1,7 @@
 # GD Lead Source Tracker - Project Tickets
 
-> **Superseded in part (2026-09-29).** v1.2 closes Tickets 1b, 1c, 1e, 2, 3b and 3c. 1d (script as an
-> external file) stays open for v2. Current roadmap and status: `docs/v2-plan.md` and `CHANGELOG.md`.
+> **Historical (2026-03-05).** The original ticket list. v1.2 closed Tickets 1b, 1c, 1e, 2, 3b
+> and 3c; the rest are tracked in `docs/v2-plan.md`, which is the current roadmap.
 
 ## GitHub Repository Setup
 
