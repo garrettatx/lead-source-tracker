@@ -65,14 +65,15 @@ lead-source-tracker/
 └── PROJECT-TICKETS.md           tickets 1-3, partly superseded by this plan
 ```
 
-**Branch consolidation:** merge `wp-engine` into `main` (its browser capture replaces `main`'s PHP
-capture, B13), tag `v1.1.0`, delete `wp-engine`, then merge `feature/v1.2-hardening` (v1.2, built on `wp-engine`) into `main` and tag `v1.2.0`.
+**Branch consolidation: done 2026-09-29.** `wp-engine` and `feature/v1.2-hardening` merged into
+`main`; `wp-engine` deleted locally and on GitHub. Tag `v1.1.0` marks the last `wp-engine` release
+(what existing v1.1 sites run), `v1.2.0` the merge.
 
 ---
 
 ## v1.2 (Built 2026-09-29, Not Yet Installed Anywhere)
 
-Built on `feature/v1.2-hardening`. What it contains is in the [CHANGELOG](../CHANGELOG.md); how to
+Released as tag `v1.2.0` on `main`. What it contains is in the [CHANGELOG](../CHANGELOG.md); how to
 test it before and after install is in [the QA plan](setup/qa-e2e-plan.md).
 
 It brought forward several items first planned for v2: server fill at submit (B7), the Safari
@@ -288,7 +289,7 @@ common consent tools later.
 
 | Phase | Scope | Proves it's done |
 |---|---|---|
-| 0 | Branch consolidation (above) | `main` holds the browser-capture code; `wp-engine` deleted |
+| 0 | Branch consolidation (above) | Done 2026-09-29 |
 | 1a, v1.2 | Built; see v1.2 above | Staging QA plan passes; embedded form values arrive in the CRM; an existing Formidable site still records entries |
 | 1b, Core | First-touch and last-touch records; B7, B10, B12, B14 fixed; server fill for Formidable; debug panel; classifier tests | Every QA case passes on a staging site with page caching on, then production |
 | 2, Setup | Setup screens, auto-add fields, Gravity and Fluent adapters, docs | A second site installed from the docs alone |
